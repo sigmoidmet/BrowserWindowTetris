@@ -1,0 +1,448 @@
+<html>
+    <head>
+        <title>Tetris</title>
+   <script>
+       // игра гарантированно работает в Google Chrome при разрешении экрана 1920x1080px, все что ниже из-за размеров блоков будет неиграбельно
+
+       var all_score = 0; // общий счет за всю игру
+       var width_info = 275; // размер инфо-окон
+       var windows = new Array(); // массив блоков
+       var i = -1; // текущий падающий блок
+       var step = 50; // размер клетки в ширину
+       var step_y = 50; // размер клетки в высоту
+       var intID = 0;  // переменная для хранения ID, которое установит setInterval для падения блоков
+
+
+// размеры игрового поля в зависимости от ширины и высоты экрана в пикселях
+       var screen_w = Math.floor((screen.width-(2*width_info - 30))/step);
+       var screen_h = Math.floor(screen.height/step_y)+1;
+       
+// левое и правое инфо-окна
+       var left_win;
+       var right_win;
+    
+// создание карты уровня, в которой хранятся булевые значения. true означает, что в эту клетку может переместиться блок, false - что не может
+       var level_map = new Array(parseInt(screen_w*screen_h));
+       for (var q = 0; q < screen_h; ++q) 
+            for (var p = 0; p < screen_w; ++p)
+                 level_map[q*screen_w+p] = true;
+
+      
+       
+    // освобождение двух клеток игрового поля в высоту по всей ширине
+       function free_map(cell_y) {
+           cell_h = 2;
+           cell_w = screen_w;
+           for (var q = 0; q < cell_h; ++q) {
+               for (var p = 0; p < cell_w; ++p) {
+                   level_map[(q + cell_y)*screen_w + p] = true;
+               }
+           }
+           return 0;
+       }
+       
+      
+    // возвращает случайное начальное положение нового блока
+        function random_x(w) {
+                var field = ((screen_w*step-step*4)-w)/step;
+                var x =(width_info - 15 + step*2)+Math.floor(field*Math.random())*step;
+                return x;
+        }
+
+            var size_map = new Array(8, 12); // возможные размеры в клетках игрового поля
+
+    // вовзращает случайный размер из доступных в size_map
+        function random_size(width = 0) {
+            if (width >= 12) return 8;
+            return size_map[Math.round((size_map.length-1)*Math.random())];
+        }
+
+// устанавливает таймер и записывает в него прошедшее время с начала игры
+    var timerID = 0;
+    var time = 0;
+        function timer() {
+            left_win.watch.innerHTML = (++time) + " sec";
+        }
+
+    // показывает на левом инфо-окне, каким будет следующий блок
+        function next_figure(w, h) {
+            if (w == 8 && h == 8)
+                left_win.next_block.innerHTML = "NEXT: Square.";
+            else if (w == 8 && h == 12)
+            left_win.next_block.innerHTML = "NEXT: Tall figure.";
+            else if (w == 12 && h == 8)
+            left_win.next_block.innerHTML = "NEXT: Wide figure.";
+        }
+            var tmpW = random_size();
+            var tmpH = random_size(tmpW);
+
+    
+
+    // класс одного блока
+        class Block {
+            constructor() {
+                    // step и step_y - размер одной клетки
+                    this.width = tmpW*step;
+                    this.height = tmpH*step_y;
+                    this.win = window.open("","","width="+this.width+",height="+this.height+",location=no,menubar=no,resizable=no,scrollbars=no");
+                   
+                    this.x = random_x(this.width);
+                    this.y = 0;
+                    this.win.moveTo(this.x,0);
+
+        // временные значения нужны, чтобы показать пользователю, какая фигура будет следующей
+                    tmpW = random_size();
+                    tmpH = random_size(tmpW);
+
+                    next_figure(tmpW, tmpH);
+
+            }
+            // Следующие геттеры возвращают координаты или размеры блока в клетках игрового поля
+            get cell_x() {
+                return (this.x-(width_info-15))/step;
+            }
+            
+            get cell_y() {
+                return this.y/step_y;
+            }
+            get cell_w() {
+                return this.width/step;
+            }
+            get cell_h() {
+                return this.height/step_y;
+            }
+
+        // блокирует поверхность, на которой находится блок, чтобы туда не мог прилететь другой блок
+            set_map() {
+           for (var q = 0; q < this.cell_h; ++q) {
+               for (var p = 0; p < this.cell_w; ++p) {
+                   level_map[(q + this.cell_y)*screen_w + (p + this.cell_x)] = false;
+            // если это самая верхняя клетка, то закончить игру 
+                   if (q + this.cell_y == 0) { 
+                        end_game();
+                        return -1;
+                    }
+               }
+           }
+           return 0;
+       }
+
+       // проверка, можно ли повернуть блок в этом месте
+            check_turn() {
+                var tmpX = this.x;
+                var newW = this.cell_x+this.cell_h;
+                if (newW > screen_w) 
+                    tmpX -= (newW - screen_w)*step;
+
+                for (var q = 0; q < this.cell_w; ++q) {
+                    for (var p = 0; p < this.cell_h; ++p) {
+                        if (!level_map[(this.cell_y + q)*screen_w + (tmpX-(width_info-15))/step + p]) 
+                            return false;
+                    }
+                }
+                return true;
+            }
+        // переворачивает блок
+            turn() {
+                if (this.check_turn()) {
+                    var newW = this.cell_x+this.cell_h;
+                if (newW > screen_w) 
+                    this.x -= (newW - screen_w)*step;
+                var tmp = this.width;
+                this.width = this.height;
+                this.height = tmp;
+                this.win.close();
+                this.win = window.open("","","width="+this.width+",height="+this.height+",location=no,menubar=no,resizable=no,scrollbars=no");
+                this.win.moveTo(this.x,this.y);
+                addEvents(this);
+                }
+            }
+         
+        // удаление текущего окна
+            del_win(j) {
+                windows[j].win.close();
+                windows.splice(j,1);
+                --i;
+            }
+        // изменение размеров текущего окна
+            resize(del_y) {
+                this.height -= 2*step_y;
+                this.win.close();
+                    this.win = window.open("","","width="+this.width+",height="+this.height+",location=no,menubar=no,resizable=no,scrollbars=no");
+                if (del_y == this.cell_y) 
+                    this.y += 2*step_y;
+
+                this.win.moveTo(this.x, this.y);
+                this.set_map();
+            }
+
+        // освобождение области под блоком, чтобы туда могли прилетать другие блоки
+            free_block_map() {
+           for (var q = 0; q < this.cell_h; ++q) 
+               for (var p = 0; p < this.cell_w; ++p) 
+                   level_map[(q + this.cell_y)*screen_w + (p + this.cell_x)] = true;
+            }
+        }
+
+    // проверка, можно ли опустить блок на одну клетку вниз
+        function if_free() {
+            var tmp = true;
+            for (var j = 0; j < windows[i].cell_w; ++j){
+
+                if (windows[i].cell_y+windows[i].cell_h == screen_h - 1) {
+                    tmp = false;
+                    break;
+                }
+                
+              if (!level_map[(windows[i].cell_y+windows[i].cell_h)*screen_w + windows[i].cell_x + j])  {
+                    tmp = false;
+                    break;
+                }
+            }
+            return tmp;
+        }
+
+    // проверка, можно ли сдвинуть блок влево
+        function if_left_free() {
+            var tmp = true;
+            if (windows[i].cell_x == 0) 
+                return false;
+            
+            for (var j = 0; j < windows[i].cell_h; ++j) 
+                  if (!level_map[(windows[i].cell_y+j)*screen_w + windows[i].cell_x - 1]) { 
+                      tmp = false;
+                      break;
+            }
+            return tmp;
+        }
+
+    // проверка, можно ли сдвинуть блок вправо
+        function if_right_free() {
+            var tmp = true;
+            if (windows[i].cell_x + windows[i].cell_w >= screen_w) return false;
+            for (var j = 0; j < windows[i].cell_h; ++j)  
+                  if (!level_map[(windows[i].cell_y+j)*screen_w + windows[i].cell_x + windows[i].cell_w]) {
+                       tmp = false;
+                       break;
+            }
+            return tmp;
+        }
+
+    // добавление реакции на стрелки и пробел(перемещение блока и его переворот)    
+        function add_keys(win1) {
+                var space = 32;
+                var esc = 27;
+                var l = 37;
+                var r = 39;
+                var u = 38;
+                var d = 40;
+                if (event.keyCode == l) {
+                    if (if_left_free()){ 
+                win1.x-=step;    
+            win1.win.moveBy(-step,0); }
+
+                }
+                if (event.keyCode == r){ 
+                    if (if_right_free()){ 
+                win1.x+=step;    
+            win1.win.moveBy(step,0); }
+                }  
+                    
+                    if (event.keyCode == d){ if (if_free()){ 
+                win1.y+=step_y;    
+            win1.win.moveBy(0,step_y); }}
+
+            if (event.keyCode == u || event.keyCode == space) 
+                win1.turn();
+            
+        }
+
+    // добавление событий, который происходят при нажатии определенных кнопок
+        function addEvents(win1) {
+            win1.win.addEventListener("keydown",function() {
+                add_keys(win1);
+                    });
+        }
+
+    // закрытие всех игровых окон по нажатию кнопки
+        function close() {
+            for (var j = 0; windows.length != 0;) {
+                windows[j].del_win(j);
+            }
+            right_win.close();
+            left_win.close();
+            location.reload();
+        }
+
+        // конец игры, вывод итогового счета, создание кнопки удалениях всех окон, пользователь больше не может управлять блоками
+        function end_game() {
+            clearInterval(timerID);
+            right_win.document.body.innerHTML = "<h1>Your score: "+all_score+".</h1>"+"<h1>Lifetime: "+time+" sec.</h1>"+"<h1>Game over.</h1> <button id ='closer'> Закрыть игровые окна </button> <hr>" + right_win.document.body.innerHTML;
+            right_win.closer.addEventListener("click",close);
+            for (var j = 0; j < windows.length; ++j) {
+                windows[j].win.removeEventListener("keydown",function() {
+                    add_keys(windows[j]);
+                });
+            }
+        }
+
+
+        // поиск позиции, куда может упасть блок
+        function find_free(win) {
+            var tmp = true;
+            var pos = win.cell_y + win.cell_h;
+            for (var k = 0; tmp; ++k, ++pos) {
+            for (var j = 0; j < win.cell_w; ++j){
+
+                if (win.cell_y+win.cell_h + k == screen_h - 1) {
+                    return pos - 1;
+                }
+                
+              if (!level_map[(win.cell_y+win.cell_h + k)*screen_w + win.cell_x + j])  {
+                    return pos - 1;
+                }
+            }
+        }
+        }
+
+
+        // перемещение всех блоков вниз после освобождения поля
+        function fall_all() {
+            for (var j = 0; j < windows.length; ++j) {
+                if (if_free()) {
+                    windows[j].free_block_map()
+                    var pos = find_free(windows[j]);
+                    windows[j].y = (pos - windows[j].cell_h + 1)*step_y;
+                    windows[j].win.moveTo(windows[j].x,windows[j].y);
+                    windows[j].set_map();
+                }
+            }
+
+        }
+
+        var score = 0;
+
+    // поиск блока по координатам
+        function search_win(cell_x, cell_y) {
+            for (var q = cell_x; q < screen_w - 3; ++q) {
+                for (var j = 0; j < windows.length; ++j) {
+                if ((q >= windows[j].cell_x) && (q < windows[j].cell_x + windows[j].cell_w) && (cell_y >= windows[j].cell_y) && (cell_y < windows[j].cell_y + windows[j].cell_h))
+                        return j; 
+                }
+            }
+            return -1;
+        }
+
+
+    // удаление блоков на всей ширине игрового поля на высоте cell_y
+        function del(cell_y) {
+            var cell_x = 0;
+            free_map(cell_y);
+            ++score;
+            while (true) {
+                var win = search_win(cell_x, cell_y);
+                if (win == -1)  break; // если окно не найдено, выйти
+                cell_x = windows[win].cell_x + windows[win].cell_w - 1;
+                if (windows[win].cell_h <= 2) // если окно высотой в две клетки, то удалить, иначе изменить его размер и переместить с этой области
+                    windows[win].del_win(win);
+                else windows[win].resize(cell_y);
+                
+            }
+        }
+
+        
+    //поиск областей высотой в 2 клетки, которые можно удалить
+        function del_regions() {
+            for (var q = screen_h-1; q != 0; --q) {
+                var if_all_false = true;
+                for (var p = 0; p < screen_w; ++p) {
+                    if ((level_map[q*screen_w + p]) || (level_map[(q+1)*screen_w + p])) {
+                        if_all_false = false;
+                        break;
+                    }
+                }
+                if (if_all_false) 
+                    del(q);
+                
+        }
+        if (score == 0) return; // если таких областей нет, то выйти из цикла
+        fall_all();
+        if (score <= 3) score*=100;
+        else score*=200;
+        right_win.document.write("<h2>+"+score+" очков.</h2>");
+        all_score +=score;
+        score = 0;
+        
+        }
+
+        // отвечает за падение блока
+        function fall() {
+            if (if_free()){ 
+                windows[i].y+=step_y;    
+            windows[i].win.moveBy(0,step_y); 
+        }
+            else {
+                clearInterval(intID);
+                if (windows[i].set_map() == -1) return; // если достигнут конец экрана, не создавать больше окон
+                del_regions();
+                update();
+            }
+        }
+
+    // ядро игры, создание новых блоков
+       function update() {
+        ++i;
+           windows[i] = new Block();
+           addEvents(windows[i]);
+        intID = setInterval(fall,1000);
+      //  
+             
+       }
+
+       // Запуск игры
+       function run_tetris() {
+
+            play_game.hidden = true; // скрытие кнопки
+
+           // блоки с информацией(очки, счет, вид следующей фигуры)
+           left_win = window.open("","","width="+width_info+" height=1080 location=no menubar=no resizable=no scrollbars=no");
+           left_win.moveTo(0,0);
+           right_win = window.open("","","width="+width_info+" height=1080 location=no menubar=no resizable=no scrollbars=no");
+           right_win.moveTo(screen.width,0);
+           left_win.document.write("<h2 id='next_block'></h2>");
+           left_win.document.write("<h1 style='position:absolute; left: 90px; bottom: 0px;' id='watch'> </h1>");
+          timerID =  setInterval(timer,1000);
+           update();
+       }
+   </script>
+   <style>
+   #Sam {
+       background-color: brown;
+       position: absolute;
+       left:0px;
+       bottom: 0px;
+       height:30px;
+       width:1920px;
+   }
+
+   #play_game {
+       position: absolute;
+       width: 500px;
+       height: 200px;
+       left:700px;
+       bottom: 500px;
+       font-size: 45pt;
+   }
+   </style>
+    </head>
+    <body>
+        <script>
+                
+            
+        </script>
+        <button id="play_game" onclick="run_tetris()">Играть в тетрис</button>
+        <div id="Sam">
+            
+        </div>
+    </body>
+    </html>
